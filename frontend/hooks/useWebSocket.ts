@@ -9,7 +9,7 @@ export type Message = {
 }
 
 type WebSocketMessage = {
-  type: 'chat.message' | 'chat.plot'
+  type: 'chat.message' | 'chat.plot' | 'chat.done'
   payload: {
     content?: string
     html?: string
@@ -20,23 +20,40 @@ type UseWebSocketReturn = {
   messages: Message[]
   plotHtml: string | null
   isConnected: boolean
+  isProcessing: boolean
   sendMessage: (content: string) => void
   clearPlot: () => void
 }
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
 
+function getDeviceId(): string {
+  const key = 'device_id'
+  let id = localStorage.getItem(key)
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem(key, id)
+  }
+  return id
+}
+
 export function useWebSocket(): UseWebSocketReturn {
   const [messages, setMessages] = useState<Message[]>([])
   const [plotHtml, setPlotHtml] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const deviceIdRef = useRef<string | null>(null)
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
-    const ws = new WebSocket(WS_URL)
+    if (!deviceIdRef.current) {
+      deviceIdRef.current = getDeviceId()
+    }
+    const channel = `dashboard_${deviceIdRef.current}`
+    const ws = new WebSocket(`${WS_URL}?channel=${channel}`)
 
     ws.onopen = () => {
       setIsConnected(true)
@@ -72,6 +89,8 @@ export function useWebSocket(): UseWebSocketReturn {
         ])
       } else if (data.type === 'chat.plot' && data.payload.html) {
         setPlotHtml(data.payload.html)
+      } else if (data.type === 'chat.done') {
+        setIsProcessing(false)
       }
     }
 
@@ -90,7 +109,10 @@ export function useWebSocket(): UseWebSocketReturn {
   }, [connect])
 
   const sendMessage = useCallback((content: string) => {
+    if (isProcessing) return
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      setIsProcessing(true)
+
       // Add user message to local state
       setMessages((prev) => [
         ...prev,
@@ -102,12 +124,15 @@ export function useWebSocket(): UseWebSocketReturn {
       ])
 
       // Send to server
+      const channel = `dashboard_${deviceIdRef.current}`
       wsRef.current.send(JSON.stringify({
         type: 'chat',
         content,
+        user: 'unknown',
+        channel,
       }))
     }
-  }, [])
+  }, [isProcessing])
 
   const clearPlot = useCallback(() => {
     setPlotHtml(null)
@@ -117,6 +142,7 @@ export function useWebSocket(): UseWebSocketReturn {
     messages,
     plotHtml,
     isConnected,
+    isProcessing,
     sendMessage,
     clearPlot,
   }
