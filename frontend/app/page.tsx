@@ -17,7 +17,6 @@ import { useVoiceAssistant } from '@/hooks/useVoiceAssistant'
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
-  const { messages, plotHtml, isConnected, isProcessing, sendMessage, clearPlot } = useWebSocket()
   const {
     loading,
     error,
@@ -25,7 +24,9 @@ export default function Home() {
     getWeeklyAggregates,
     getMealTypeAggregates,
     addMeal,
+    refetch,
   } = useMeals()
+  const { messages, plotHtml, isConnected, isProcessing, sendMessage, clearPlot } = useWebSocket({ onRefresh: refetch })
   const { voiceState, partialTranscript, error: voiceError } = useVoiceAssistant({
     sendMessage,
     porcupineAccessKey: process.env.NEXT_PUBLIC_PICOVOICE_ACCESS_KEY || '',

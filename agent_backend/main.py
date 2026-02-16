@@ -4,9 +4,8 @@ import sys
 import time
 
 from dotenv import load_dotenv
-load_dotenv(override=True)
 
-from openai import OpenAI
+load_dotenv(override=True)
 
 import agent
 from claude_agent_sdk import (
@@ -21,6 +20,7 @@ from claude_agent_sdk import (
 )
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
 
 app = FastAPI()
 
@@ -62,8 +62,9 @@ def should_create_new_session(session_data: dict | None) -> bool:
 
 @app.post("/api/realtime-session")
 async def create_realtime_session():
-    import httpx
     import os
+
+    import httpx
 
     api_key = os.environ["OPENAI_API_KEY"]
     async with httpx.AsyncClient() as http:
@@ -119,14 +120,15 @@ async def websocket_endpoint(websocket: WebSocket):
             session_data = {"session_id": None, "last_message_time": 0, "user_message_count": 0}
             print(f"Starting new session for channel {channel}")
 
-        # Create the plot tool with access to this websocket
+        # Create tools with access to this websocket
         display_plot = agent.create_plot_tool(websocket)
+        refresh_dashboard = agent.create_refresh_tool(websocket)
 
-        # Create MCP server with the tool
+        # Create MCP server with the tools
         plot_server = create_sdk_mcp_server(
             name="home-agent-server",
             version="1.0.0",
-            tools=[display_plot],
+            tools=[display_plot, refresh_dashboard],
         )
 
         # Configure client options
@@ -148,7 +150,7 @@ async def websocket_endpoint(websocket: WebSocket):
             setting_sources=["project"],
             cwd=WORK_DIR,
             resume=resume_id,
-            system_prompt="You are acting as a home assistant, you might code to process users request. Your response should be concise and should not include symbols as they will be read out by text to speech model. DO NOT USE markdown or lists. Your reply should be ~2 sentences long. DO NOT INCLUDE ANYTHING ELSE that should not be read by the TTS model."
+            system_prompt="You are acting as a home assistant, you might code to process users request. Your response should be concise and should not include symbols as they will be read out by text to speech model. DO NOT USE markdown or lists. Your reply should be ~2 sentences long. DO NOT INCLUDE ANYTHING ELSE that should not be read by the TTS model. Also before working on the user's request, acknowledge the user's request and say you will work on it very briefly."
         )
 
         async with ClaudeSDKClient(options=options) as client:
