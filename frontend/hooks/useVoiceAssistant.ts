@@ -22,6 +22,37 @@ export function useVoiceAssistant({ sendMessage, porcupineAccessKey, enabled }: 
     if (trimmed) {
       console.log('Final transcript:', trimmed)
       sendMessageRef.current(trimmed)
+
+      // Play completion beep to confirm message was sent
+      try {
+        const beepContext = new AudioContext()
+        const oscillator = beepContext.createOscillator()
+        const gainNode = beepContext.createGain()
+
+        oscillator.connect(gainNode)
+        gainNode.connect(beepContext.destination)
+
+        // Use 1200 Hz for completion beep (different from 800 Hz wake word beep)
+        oscillator.frequency.value = 1200
+        oscillator.type = 'sine'
+
+        // Shorter, higher-pitched double beep pattern for "request sent"
+        gainNode.gain.setValueAtTime(0.3, beepContext.currentTime)
+        gainNode.gain.exponentialRampToValueAtTime(0.01, beepContext.currentTime + 0.1)
+
+        // Second beep
+        gainNode.gain.setValueAtTime(0.3, beepContext.currentTime + 0.15)
+        gainNode.gain.exponentialRampToValueAtTime(0.01, beepContext.currentTime + 0.25)
+
+        oscillator.start(beepContext.currentTime)
+        oscillator.stop(beepContext.currentTime + 0.25)
+
+        oscillator.onended = () => {
+          beepContext.close()
+        }
+      } catch (err) {
+        console.error('Failed to play completion beep:', err)
+      }
     }
     setPartialTranscript('')
   }, [])
