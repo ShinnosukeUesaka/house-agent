@@ -9,10 +9,11 @@ export type Message = {
 }
 
 type WebSocketMessage = {
-  type: 'message' | 'plot'
-  role?: 'user' | 'assistant'
-  content?: string
-  html?: string
+  type: 'chat.message' | 'chat.plot'
+  payload: {
+    content?: string
+    html?: string
+  }
 }
 
 type UseWebSocketReturn = {
@@ -60,18 +61,17 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onmessage = (event) => {
       const data: WebSocketMessage = JSON.parse(event.data)
 
-      if (data.type === 'message' && data.content) {
-        const content = data.content
+      if (data.type === 'chat.message' && data.payload.content) {
         setMessages((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
-            role: data.role || 'assistant',
-            content,
+            role: 'assistant',
+            content: data.payload.content!,
           },
         ])
-      } else if (data.type === 'plot' && data.html) {
-        setPlotHtml(data.html)
+      } else if (data.type === 'chat.plot' && data.payload.html) {
+        setPlotHtml(data.payload.html)
       }
     }
 
