@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@picovoice/porcupine-web": "^4.0.0",
+    "@picovoice/web-voice-processor": "^4.0.9",
     "@supabase/supabase-js": "^2.93.3",
     "next": "16.1.6",
     "plotly.js": "^3.3.1",

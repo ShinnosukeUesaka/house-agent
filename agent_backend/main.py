@@ -1,8 +1,10 @@
-import asyncio
 import json
 import pathlib
-import sys
-from nt import system
+
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+from openai import OpenAI
 
 import agent
 from claude_agent_sdk import (
@@ -29,6 +31,40 @@ app.add_middleware(
 
 WORK_DIR = pathlib.Path(__file__).parent
 
+
+@app.post("/api/realtime-session")
+async def create_realtime_session():
+    import httpx
+    import os
+
+    api_key = os.environ["OPENAI_API_KEY"]
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            "https://api.openai.com/v1/realtime/transcription_sessions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "input_audio_format": "pcm16",
+                "input_audio_transcription": {
+                    "model": "gpt-4o-mini-transcribe",
+                },
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 700,
+                },
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    return {
+        "token": data["client_secret"]["value"],
+        "expires_at": data["client_secret"]["expires_at"],
+    }
 
 
 @app.websocket("/ws")

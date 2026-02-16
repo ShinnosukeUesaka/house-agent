@@ -10,6 +10,9 @@ import { AddMealModal } from '@/components/AddMealModal'
 import { ChatButton } from '@/components/ChatButton'
 import { ChatWindow } from '@/components/ChatWindow'
 import { PlotWindow } from '@/components/PlotWindow'
+import { VoiceIndicator } from '@/components/VoiceIndicator'
+import { LiveTranscript } from '@/components/LiveTranscript'
+import { useVoiceAssistant } from '@/hooks/useVoiceAssistant'
 
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -23,6 +26,11 @@ export default function Home() {
     getMealTypeAggregates,
     addMeal,
   } = useMeals()
+  const { voiceState, partialTranscript, error: voiceError } = useVoiceAssistant({
+    sendMessage,
+    porcupineAccessKey: process.env.NEXT_PUBLIC_PICOVOICE_ACCESS_KEY || '',
+    enabled: isConnected,
+  })
 
   const dailyData = getDailyAggregates(7)
   const weeklyData = getWeeklyAggregates(4)
@@ -42,6 +50,7 @@ export default function Home() {
             >
               + Add Meal
             </button>
+            <VoiceIndicator voiceState={voiceState} error={voiceError} />
             <ChatButton onClick={() => setIsChatOpen(true)} isConnected={isConnected} />
           </div>
         </div>
@@ -90,6 +99,11 @@ export default function Home() {
       />
 
       <PlotWindow html={plotHtml} onClose={clearPlot} />
+
+      <LiveTranscript
+        text={partialTranscript}
+        isVisible={voiceState === 'transcribing' || voiceState === 'connecting'}
+      />
     </div>
   )
 }
