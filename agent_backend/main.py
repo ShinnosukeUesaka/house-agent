@@ -1,8 +1,12 @@
-import asyncio
 import json
 import pathlib
 import sys
 import time
+
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+from openai import OpenAI
 
 import agent
 from claude_agent_sdk import (
@@ -55,6 +59,40 @@ def should_create_new_session(session_data: dict | None) -> bool:
     elapsed = time.time() - session_data.get("last_message_time", 0)
     message_count = session_data.get("user_message_count", 0)
     return elapsed > 3600 and message_count > 5
+
+@app.post("/api/realtime-session")
+async def create_realtime_session():
+    import httpx
+    import os
+
+    api_key = os.environ["OPENAI_API_KEY"]
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            "https://api.openai.com/v1/realtime/transcription_sessions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "input_audio_format": "pcm16",
+                "input_audio_transcription": {
+                    "model": "gpt-4o-mini-transcribe",
+                },
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 700,
+                },
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    return {
+        "token": data["client_secret"]["value"],
+        "expires_at": data["client_secret"]["expires_at"],
+    }
 
 
 @app.websocket("/ws")

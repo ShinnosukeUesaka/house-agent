@@ -44,3 +44,12 @@ VALUES ('shin', 500, 'chicken salad', 'lunch');
 SELECT COALESCE(SUM(calories), 0) FROM meals
 WHERE user_name = 'shin' AND eaten_at::date = CURRENT_DATE;
 ```
+
+## Voice Assistant
+
+- Wake word: "Alexa" via Porcupine Web SDK (WASM, runs in browser)
+- STT: OpenAI Realtime API with server VAD for auto-stop
+- Backend provides ephemeral tokens via `POST /api/realtime-session` (keeps OPENAI_API_KEY server-side)
+- A 3-second rolling audio buffer prevents word loss after wake word detection
+- Final transcripts are sent through the existing WebSocket chat pipeline
+- Env var: `NEXT_PUBLIC_PICOVOICE_ACCESS_KEY` (Picovoice Console access key)
