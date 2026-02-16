@@ -9,12 +9,16 @@ export type Message = {
 }
 
 type WebSocketMessage = {
-  type: 'chat.message' | 'chat.plot' | 'chat.done' | 'chat.audio'
+  type: 'chat.message' | 'chat.plot' | 'chat.done' | 'chat.audio' | 'data.refresh'
   payload: {
     content?: string
     html?: string
     audio?: string
   }
+}
+
+type UseWebSocketOptions = {
+  onRefresh?: () => void
 }
 
 type UseWebSocketReturn = {
@@ -38,7 +42,7 @@ function getDeviceId(): string {
   return id
 }
 
-export function useWebSocket(): UseWebSocketReturn {
+export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn {
   const [messages, setMessages] = useState<Message[]>([])
   const [plotHtml, setPlotHtml] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
@@ -47,6 +51,8 @@ export function useWebSocket(): UseWebSocketReturn {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const deviceIdRef = useRef<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const onRefreshRef = useRef(options?.onRefresh)
+  onRefreshRef.current = options?.onRefresh
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -120,6 +126,8 @@ export function useWebSocket(): UseWebSocketReturn {
         } catch (error) {
           console.error('Error processing audio:', error)
         }
+      } else if (data.type === 'data.refresh') {
+        onRefreshRef.current?.()
       } else if (data.type === 'chat.done') {
         setIsProcessing(false)
       }

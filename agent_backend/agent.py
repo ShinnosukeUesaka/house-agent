@@ -27,3 +27,20 @@ def create_plot_tool(websocket: WebSocket):
         }
 
     return display_plot
+
+
+def create_refresh_tool(websocket: WebSocket):
+    """Create a refresh_dashboard tool that signals the frontend to refetch data."""
+
+    @tool(
+        "refresh_dashboard",
+        "Refresh the dashboard UI in the user's browser. Call this after making any changes to the database (e.g., adding, updating, or deleting meals) so the user sees updated charts immediately.",
+        {},
+    )
+    async def refresh_dashboard(args: dict):
+        await websocket.send_json({"type": "data.refresh", "payload": {}})
+        return {
+            "content": [{"type": "text", "text": "Dashboard has been refreshed."}]
+        }
+
+    return refresh_dashboard
