@@ -41,7 +41,7 @@ export default function Home() {
       <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-            Home Assistant
+            OK Computer
           </h1>
           <div className="flex items-center gap-3">
             <button
