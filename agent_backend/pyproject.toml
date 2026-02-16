@@ -10,3 +10,4 @@ dependencies = [
     "openai>=2.16.0",
     "uvicorn[standard]>=0.34.0",
 ]
+

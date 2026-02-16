@@ -2,13 +2,14 @@ import asyncio
 import json
 import pathlib
 import sys
-from nt import system
+import time
 
 import agent
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    ResultMessage,
     TextBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
@@ -28,57 +29,108 @@ app.add_middleware(
 )
 
 WORK_DIR = pathlib.Path(__file__).parent
+SESSIONS_DIR = WORK_DIR / ".sessions"
 
+_active_channels: set[str] = set()
+
+
+def load_session(channel: str) -> dict | None:
+    """Load session data from file. Returns None if missing or corrupt."""
+    try:
+        return json.loads((SESSIONS_DIR / f"{channel}.json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+def save_session(channel: str, data: dict) -> None:
+    """Write session data to file."""
+    SESSIONS_DIR.mkdir(exist_ok=True)
+    (SESSIONS_DIR / f"{channel}.json").write_text(json.dumps(data))
+
+
+def should_create_new_session(session_data: dict | None) -> bool:
+    """Return True if we should create a new session instead of resuming."""
+    if session_data is None or not session_data.get("session_id"):
+        return True
+    elapsed = time.time() - session_data.get("last_message_time", 0)
+    message_count = session_data.get("user_message_count", 0)
+    return elapsed > 3600 and message_count > 5
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
+    channel = websocket.query_params.get("channel")
+    if not channel:
+        await websocket.close(code=1008, reason="Missing channel")
+        return
+    if channel in _active_channels:
+        await websocket.close(code=1008, reason="Channel already active")
+        return
 
-    # Create the plot tool with access to this websocket
-    display_plot = agent.create_plot_tool(websocket)
-
-    # Create MCP server with the tool
-    plot_server = create_sdk_mcp_server(
-        name="home-agent-server",
-        version="1.0.0",
-        tools=[display_plot],
-    )
-
-    # Configure client options
-    options = ClaudeAgentOptions(
-        mcp_servers={"plot": plot_server},
-        allowed_tools=[
-            "mcp__home-agent-server__*",
-            "read",
-            "write",
-            "edit",
-            "bash",
-            "glob",
-            "grep",
-            "web_search",
-            "web_fetch",
-            "ask_user_question",
-        ],
-        permission_mode="bypassPermissions",
-        setting_sources=["project"],
-        cwd=WORK_DIR,
-        system_prompt="You are acting as a home assistant, you might code to process users request."
-    )
-
+    _active_channels.add(channel)
     try:
+        await websocket.accept()
+
+        # Load existing session and decide whether to resume
+        session_data = load_session(channel)
+        resume_id = None
+        if not should_create_new_session(session_data):
+            resume_id = session_data["session_id"]
+            print(f"Resuming session {resume_id} for channel {channel}")
+        else:
+            session_data = {"session_id": None, "last_message_time": 0, "user_message_count": 0}
+            print(f"Starting new session for channel {channel}")
+
+        # Create the plot tool with access to this websocket
+        display_plot = agent.create_plot_tool(websocket)
+
+        # Create MCP server with the tool
+        plot_server = create_sdk_mcp_server(
+            name="home-agent-server",
+            version="1.0.0",
+            tools=[display_plot],
+        )
+
+        # Configure client options
+        options = ClaudeAgentOptions(
+            mcp_servers={"plot": plot_server},
+            allowed_tools=[
+                "mcp__home-agent-server__*",
+                "read",
+                "write",
+                "edit",
+                "bash",
+                "glob",
+                "grep",
+                "web_search",
+                "web_fetch",
+                "ask_user_question",
+            ],
+            permission_mode="bypassPermissions",
+            setting_sources=["project"],
+            cwd=WORK_DIR,
+            resume=resume_id,
+            system_prompt="You are acting as a home assistant, you might code to process users request. Your response should be concise and should not include symbols as they will be read out by text to speech model. DO NOT USE markdown or lists. Your reply should be ~2 sentences long. DO NOT INCLUDE ANYTHING ELSE that should not be read by the TTS model."
+        )
+
         async with ClaudeSDKClient(options=options) as client:
             while True:
                 data = await websocket.receive_text()
                 message_data = json.loads(data)
-
+                print(message_data)
                 if message_data.get("type") == "chat":
                     user_message = message_data.get("content", "")
+                    user = message_data.get("user", "unknown")
+                    query_text = f"[User: {user}] {user_message}" if user != "unknown" else user_message
 
-                    await client.query(user_message)
-
+                    print(f"message received {query_text}")
+                    await client.query(query_text)
+                    print("response generated")
                     async for message in client.receive_response():
-                        if isinstance(message, AssistantMessage):
+                        print(message)
+                        if isinstance(message, ResultMessage):
+                            session_data["session_id"] = message.session_id
+                        elif isinstance(message, AssistantMessage):
                             for block in message.content:
                                 if isinstance(block, TextBlock):
                                     await websocket.send_json({
@@ -88,10 +140,20 @@ async def websocket_endpoint(websocket: WebSocket):
                                         },
                                     })
 
+                    # Signal completion to frontend
+                    await websocket.send_json({"type": "chat.done", "payload": {}})
+
+                    # Update session tracking after each user message
+                    session_data["user_message_count"] = session_data.get("user_message_count", 0) + 1
+                    session_data["last_message_time"] = time.time()
+                    save_session(channel, session_data)
+
     except WebSocketDisconnect:
-        print("WebSocket disconnected")
+        print(f"WebSocket disconnected for channel {channel}")
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        print(f"WebSocket error for channel {channel}: {e}")
+    finally:
+        _active_channels.discard(channel)
 
 
 @app.get("/health")

@@ -9,9 +9,10 @@ type Props = {
   messages: Message[]
   onSendMessage: (content: string) => void
   isConnected: boolean
+  isProcessing: boolean
 }
 
-export function ChatWindow({ isOpen, onClose, messages, onSendMessage, isConnected }: Props) {
+export function ChatWindow({ isOpen, onClose, messages, onSendMessage, isConnected, isProcessing }: Props) {
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -21,7 +22,7 @@ export function ChatWindow({ isOpen, onClose, messages, onSendMessage, isConnect
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (input.trim() && isConnected) {
+    if (input.trim() && isConnected && !isProcessing) {
       onSendMessage(input.trim())
       setInput('')
     }
@@ -103,13 +104,13 @@ export function ChatWindow({ isOpen, onClose, messages, onSendMessage, isConnect
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={isConnected ? 'Type a message...' : 'Connecting...'}
-              disabled={!isConnected}
+              placeholder={!isConnected ? 'Connecting...' : isProcessing ? 'Processing...' : 'Type a message...'}
+              disabled={!isConnected || isProcessing}
               className="flex-1 px-4 py-2 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500 disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={!isConnected || !input.trim()}
+              disabled={!isConnected || !input.trim() || isProcessing}
               className="px-4 py-2 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Send

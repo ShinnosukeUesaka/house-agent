@@ -14,7 +14,7 @@ import { PlotWindow } from '@/components/PlotWindow'
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
-  const { messages, plotHtml, isConnected, sendMessage, clearPlot } = useWebSocket()
+  const { messages, plotHtml, isConnected, isProcessing, sendMessage, clearPlot } = useWebSocket()
   const {
     loading,
     error,
@@ -33,7 +33,7 @@ export default function Home() {
       <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-            Home Dashboard
+            Home Assistant
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -87,6 +87,7 @@ export default function Home() {
         messages={messages}
         onSendMessage={sendMessage}
         isConnected={isConnected}
+        isProcessing={isProcessing}
       />
 
       <PlotWindow html={plotHtml} onClose={clearPlot} />
