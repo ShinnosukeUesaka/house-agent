@@ -19,15 +19,18 @@ pnpm run dev
 
 ## WebSocket Protocol
 
-The backend (`agent_backend/main.py`) and frontend (`frontend/hooks/useWebSocket.ts`) communicate over WebSocket at `/ws`.
+The backend (`agent_backend/main.py`) and frontend (`frontend/hooks/useWebSocket.ts`) communicate over WebSocket at `/ws?channel=<channel_id>`.
 
+- The `channel` query parameter is required (e.g. `dashboard_<device_uuid>`). The server rejects connections without it or if the channel is already active.
+- Sessions are persisted per channel to disk (`.sessions/<channel>.json`). A session is resumed if it exists, has fewer than 6 messages, or the last message was within 1 hour; otherwise a new session is created.
 
 ### Client -> Server
-- `{"type": "chat", "content": "..."}`
+- `{"type": "chat", "content": "...", "user": "...", "channel": "..."}`
 
 ### Server -> Client
-- `{"type": "chat.message", "payload": {"content": "..."}}`
-- `{"type": "chat.plot", "payload": {"html": "..."}}`
+- `{"type": "chat.message", "payload": {"content": "..."}}` — assistant text response (may arrive multiple times per query)
+- `{"type": "chat.plot", "payload": {"html": "..."}}` — interactive Plotly chart HTML
+- `{"type": "chat.done", "payload": {}}` — signals the assistant has finished responding; frontend clears the processing/loading state
 
 ## Calorie Tracking (meals table)
 
