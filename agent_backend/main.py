@@ -2,6 +2,7 @@ import json
 import pathlib
 import sys
 import time
+import base64
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -21,6 +22,8 @@ from claude_agent_sdk import (
 )
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+import os
 
 app = FastAPI()
 
@@ -63,7 +66,6 @@ def should_create_new_session(session_data: dict | None) -> bool:
 @app.post("/api/realtime-session")
 async def create_realtime_session():
     import httpx
-    import os
 
     api_key = os.environ["OPENAI_API_KEY"]
     async with httpx.AsyncClient() as http:
@@ -93,6 +95,31 @@ async def create_realtime_session():
         "token": data["client_secret"]["value"],
         "expires_at": data["client_secret"]["expires_at"],
     }
+
+
+@app.post("/api/tts")
+async def text_to_speech(request: dict):
+    """Convert text to speech using OpenAI TTS API."""
+    text = request.get("text", "")
+    if not text:
+        return Response(content=b"", status_code=400)
+
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+    response = client.audio.speech.create(
+        model="tts-1",
+        voice="nova",
+        input=text
+    )
+
+    # Return audio as MP3
+    return Response(
+        content=response.content,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "no-cache",
+        }
+    )
 
 
 @app.websocket("/ws")
@@ -171,12 +198,33 @@ async def websocket_endpoint(websocket: WebSocket):
                         elif isinstance(message, AssistantMessage):
                             for block in message.content:
                                 if isinstance(block, TextBlock):
+                                    # Send text message
                                     await websocket.send_json({
                                         "type": "chat.message",
                                         "payload": {
                                             "content": block.text,
                                         },
                                     })
+
+                                    # Generate TTS audio
+                                    try:
+                                        openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+                                        audio_response = openai_client.audio.speech.create(
+                                            model="tts-1",
+                                            voice="onyx",
+                                            input=block.text
+                                        )
+
+                                        # Encode audio as base64 and send via WebSocket
+                                        audio_base64 = base64.b64encode(audio_response.content).decode('utf-8')
+                                        await websocket.send_json({
+                                            "type": "chat.audio",
+                                            "payload": {
+                                                "audio": audio_base64,
+                                            },
+                                        })
+                                    except Exception as e:
+                                        print(f"TTS error: {e}")
 
                     # Signal completion to frontend
                     await websocket.send_json({"type": "chat.done", "payload": {}})

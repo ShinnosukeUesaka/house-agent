@@ -79,6 +79,32 @@ export function useWakeWord({ accessKey, onWakeWord, enabled }: UseWakeWordOptio
               return
             }
             console.log(`Wake word detected: ${detection.label}`)
+
+            // Play beep sound to confirm wake word detection
+            try {
+              const beepContext = new AudioContext()
+              const oscillator = beepContext.createOscillator()
+              const gainNode = beepContext.createGain()
+
+              oscillator.connect(gainNode)
+              gainNode.connect(beepContext.destination)
+
+              oscillator.frequency.value = 800 // 800 Hz beep
+              oscillator.type = 'sine'
+
+              gainNode.gain.setValueAtTime(0.3, beepContext.currentTime)
+              gainNode.gain.exponentialRampToValueAtTime(0.01, beepContext.currentTime + 0.2)
+
+              oscillator.start(beepContext.currentTime)
+              oscillator.stop(beepContext.currentTime + 0.2)
+
+              oscillator.onended = () => {
+                beepContext.close()
+              }
+            } catch (err) {
+              console.error('Failed to play beep:', err)
+            }
+
             workletNode.port.postMessage({ type: 'snapshot' })
             snapshotResolve = (buffer: Float32Array) => {
               onWakeWordRef.current(buffer, workletNode)
@@ -103,7 +129,32 @@ export function useWakeWord({ accessKey, onWakeWord, enabled }: UseWakeWordOptio
         source.connect(scriptProcessor)
         scriptProcessor.connect(audioContext.destination)
 
-        scriptProcessor.onaudioprocess = async (e: AudioProcessingEvent) => {
+        // Process Porcupine frames serially to avoid concurrent WASM calls.
+        // onaudioprocess must NOT be async — the browser ignores the returned
+        // Promise and fires the next callback on schedule, which causes
+        // concurrent mutations of porcupineBuffer and concurrent
+        // porcupine.process() calls that corrupt WASM state.
+        let processing = false
+        const pendingFrames: Int16Array[] = []
+
+        async function drainQueue() {
+          if (processing) return
+          processing = true
+          try {
+            while (pendingFrames.length > 0) {
+              const frame = pendingFrames.shift()!
+              try {
+                await porcupine.process(frame)
+              } catch (err) {
+                console.error('Porcupine process error:', err)
+              }
+            }
+          } finally {
+            processing = false
+          }
+        }
+
+        scriptProcessor.onaudioprocess = (e: AudioProcessingEvent) => {
           if (!porcupineRef.current) return
 
           const inputData = e.inputBuffer.getChannelData(0)
@@ -121,14 +172,11 @@ export function useWakeWord({ accessKey, onWakeWord, enabled }: UseWakeWordOptio
           porcupineBuffer = combined
 
           while (porcupineBuffer.length >= porcupineFrameLength) {
-            const frame = porcupineBuffer.slice(0, porcupineFrameLength)
+            pendingFrames.push(porcupineBuffer.slice(0, porcupineFrameLength))
             porcupineBuffer = porcupineBuffer.slice(porcupineFrameLength)
-            try {
-              await porcupine.process(frame)
-            } catch (err) {
-              console.error('Porcupine process error:', err)
-            }
           }
+
+          drainQueue()
         }
 
         setupDoneRef.current = true

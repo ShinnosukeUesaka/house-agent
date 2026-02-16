@@ -9,10 +9,11 @@ export type Message = {
 }
 
 type WebSocketMessage = {
-  type: 'chat.message' | 'chat.plot' | 'chat.done'
+  type: 'chat.message' | 'chat.plot' | 'chat.done' | 'chat.audio'
   payload: {
     content?: string
     html?: string
+    audio?: string
   }
 }
 
@@ -45,6 +46,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const deviceIdRef = useRef<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -89,6 +91,35 @@ export function useWebSocket(): UseWebSocketReturn {
         ])
       } else if (data.type === 'chat.plot' && data.payload.html) {
         setPlotHtml(data.payload.html)
+      } else if (data.type === 'chat.audio' && data.payload.audio) {
+        // Convert base64 audio to blob and play
+        try {
+          const audioData = atob(data.payload.audio)
+          const arrayBuffer = new ArrayBuffer(audioData.length)
+          const uint8Array = new Uint8Array(arrayBuffer)
+          for (let i = 0; i < audioData.length; i++) {
+            uint8Array[i] = audioData.charCodeAt(i)
+          }
+          const blob = new Blob([uint8Array], { type: 'audio/mpeg' })
+          const audioUrl = URL.createObjectURL(blob)
+
+          // Create or reuse audio element
+          if (!audioRef.current) {
+            audioRef.current = new Audio()
+          }
+
+          audioRef.current.src = audioUrl
+          audioRef.current.play().catch((error) => {
+            console.error('Error playing audio:', error)
+          })
+
+          // Clean up the object URL after playing
+          audioRef.current.onended = () => {
+            URL.revokeObjectURL(audioUrl)
+          }
+        } catch (error) {
+          console.error('Error processing audio:', error)
+        }
       } else if (data.type === 'chat.done') {
         setIsProcessing(false)
       }
