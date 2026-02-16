@@ -5,9 +5,22 @@ We are tracking
 
 Everything is managed by the agent living in agent_backend
 
+# Setup
+To run backend, run
+```
+uv run fastapi run main.py
+```
+
+To run frontend, run
+```
+cd frontend
+pnpm run dev
+```
+
 ## WebSocket Protocol
 
 The backend (`agent_backend/main.py`) and frontend (`frontend/hooks/useWebSocket.ts`) communicate over WebSocket at `/ws`.
+
 
 ### Client -> Server
 - `{"type": "chat", "content": "..."}`
