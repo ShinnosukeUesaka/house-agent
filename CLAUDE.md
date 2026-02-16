@@ -1,9 +1,7 @@
-We are making home dashboard.
-We are tracking
-- calories
-- more to come
+# Home Agent Project
 
-Everything is managed by the agent living in agent_backend
+If you are an AI agent reading this, you might be coding agent working on developing the home agent project, OR working as a home assistant agent.
+
 
 # Setup
 To run backend, run
