@@ -47,7 +47,6 @@ export function useRealtimeSTT({
   const stopStreaming = useCallback(() => {
     if (wsRef.current) {
       if (wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'input_audio_buffer.commit' }))
         wsRef.current.close()
       }
       wsRef.current = null
@@ -67,22 +66,32 @@ export function useRealtimeSTT({
         if (!resp.ok) throw new Error(`Failed to get session token: ${resp.status}`)
         const { token } = await resp.json()
 
-        // 2. Connect to OpenAI Realtime API
+        // 2. Connect to OpenAI Realtime Transcription API
         const ws = new WebSocket(
-          'wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview',
+          'wss://api.openai.com/v1/realtime?intent=transcription',
           ['realtime', `openai-insecure-api-key.${token}`, 'openai-beta.realtime-v1']
         )
         wsRef.current = ws
 
         let transcriptAccumulator = ''
+        let originalHandler: ((this: MessagePort, ev: MessageEvent) => void) | null = null
+
+        const cleanup = () => {
+          workletNode.port.postMessage({ type: 'stopStreaming' })
+          if (originalHandler) {
+            workletNode.port.onmessage = originalHandler
+          }
+          wsRef.current = null
+          setIsActive(false)
+          onStateRef.current('idle')
+        }
 
         ws.onopen = () => {
-          console.log('OpenAI Realtime WS connected')
+          console.log('OpenAI Realtime Transcription WS connected')
           onStateRef.current('streaming')
 
           // Send buffered audio first (resample from 48kHz to 24kHz)
           const resampled = resampleToPCM16(bufferedAudio, 48000, 24000)
-          // Send in chunks to avoid message size limits
           const chunkSize = 4800 // 100ms of audio at 24kHz
           for (let i = 0; i < resampled.length; i += chunkSize) {
             const chunk = resampled.slice(i, i + chunkSize)
@@ -104,9 +113,8 @@ export function useRealtimeSTT({
         }
 
         // Store original handler and add our handler
-        const originalHandler = workletNode.port.onmessage
+        originalHandler = workletNode.port.onmessage
         workletNode.port.onmessage = (event: MessageEvent) => {
-          // Call original handler for snapshot responses
           if (originalHandler && event.data.type !== 'audio') {
             originalHandler.call(workletNode.port, event)
           }
@@ -117,6 +125,7 @@ export function useRealtimeSTT({
           const data = JSON.parse(event.data)
 
           switch (data.type) {
+            // Transcription-specific events
             case 'conversation.item.input_audio_transcription.delta':
               if (data.delta) {
                 transcriptAccumulator += data.delta
@@ -131,58 +140,52 @@ export function useRealtimeSTT({
                 onFinalRef.current(transcriptAccumulator)
               }
               transcriptAccumulator = ''
+              // Done with this utterance, clean up
+              cleanup()
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.close()
+              }
+              break
+
+            case 'input_audio_buffer.committed':
+              console.log('Audio buffer committed')
+              break
+
+            case 'input_audio_buffer.speech_started':
+              console.log('VAD: speech started')
               break
 
             case 'input_audio_buffer.speech_stopped':
               console.log('VAD: speech stopped')
-              // Commit the audio buffer to trigger transcription
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }))
-              }
-              break
-
-            case 'response.done':
-              // Turn complete, clean up
-              workletNode.port.postMessage({ type: 'stopStreaming' })
-              workletNode.port.onmessage = originalHandler
-              ws.close()
-              wsRef.current = null
-              setIsActive(false)
-              onStateRef.current('idle')
               break
 
             case 'error':
               console.error('OpenAI Realtime error:', data.error)
-              workletNode.port.postMessage({ type: 'stopStreaming' })
-              workletNode.port.onmessage = originalHandler
-              ws.close()
-              wsRef.current = null
-              setIsActive(false)
-              onStateRef.current('idle')
+              cleanup()
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.close()
+              }
               break
 
-            case 'session.created':
-            case 'session.updated':
+            case 'transcription_session.created':
+            case 'transcription_session.updated':
               console.log('Session event:', data.type)
+              break
+
+            default:
+              console.log('Realtime event:', data.type)
               break
           }
         }
 
         ws.onerror = (err) => {
           console.error('OpenAI Realtime WS error:', err)
-          workletNode.port.postMessage({ type: 'stopStreaming' })
-          workletNode.port.onmessage = originalHandler
-          setIsActive(false)
-          onStateRef.current('idle')
+          cleanup()
         }
 
         ws.onclose = () => {
           console.log('OpenAI Realtime WS closed')
-          workletNode.port.postMessage({ type: 'stopStreaming' })
-          workletNode.port.onmessage = originalHandler
-          wsRef.current = null
-          setIsActive(false)
-          onStateRef.current('idle')
+          cleanup()
         }
       } catch (err) {
         console.error('STT streaming error:', err)
