@@ -1,1 +1,1 @@
-Use PNPM instead of npm
+Use bun instead of npm or pnpm

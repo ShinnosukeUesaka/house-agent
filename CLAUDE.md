@@ -12,7 +12,7 @@ uv run fastapi run main.py
 To run frontend, run
 ```
 cd frontend
-pnpm run dev
+bun run dev
 ```
 
 ## WebSocket Protocol
