@@ -9,7 +9,7 @@ export type Message = {
 }
 
 type WebSocketMessage = {
-  type: 'chat.message' | 'chat.plot' | 'chat.done' | 'chat.audio' | 'data.refresh'
+  type: 'chat.message' | 'chat.plot' | 'chat.done' | 'chat.audio' | 'chat.audio.chunk' | 'chat.audio.done' | 'data.refresh'
   payload: {
     content?: string
     html?: string
@@ -51,8 +51,64 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const deviceIdRef = useRef<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const mediaSourceRef = useRef<MediaSource | null>(null)
+  const sourceBufferRef = useRef<SourceBuffer | null>(null)
+  const pendingChunksRef = useRef<Uint8Array[]>([])
+  const streamingDoneRef = useRef(false)
   const onRefreshRef = useRef(options?.onRefresh)
   onRefreshRef.current = options?.onRefresh
+
+  function flushChunks() {
+    const sb = sourceBufferRef.current
+    const ms = mediaSourceRef.current
+    if (!sb || sb.updating || !ms || ms.readyState !== 'open') return
+
+    if (pendingChunksRef.current.length > 0) {
+      sb.appendBuffer(pendingChunksRef.current.shift()!)
+    } else if (streamingDoneRef.current) {
+      ms.endOfStream()
+    }
+  }
+
+  function initAudioStream() {
+    if (mediaSourceRef.current?.readyState === 'open') {
+      try { mediaSourceRef.current.endOfStream() } catch (_) {}
+    }
+    sourceBufferRef.current = null
+    pendingChunksRef.current = []
+    streamingDoneRef.current = false
+
+    const mediaSource = new MediaSource()
+    mediaSourceRef.current = mediaSource
+
+    if (!audioRef.current) audioRef.current = new Audio()
+    const audio = audioRef.current
+    const url = URL.createObjectURL(mediaSource)
+    audio.src = url
+
+    mediaSource.addEventListener('sourceopen', () => {
+      URL.revokeObjectURL(url)
+      const sb = mediaSource.addSourceBuffer('audio/mpeg')
+      sourceBufferRef.current = sb
+      sb.addEventListener('updateend', flushChunks)
+      flushChunks()
+    }, { once: true })
+
+    audio.play().catch((e) => console.error('Audio play error:', e))
+  }
+
+  function appendChunk(base64: string) {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    pendingChunksRef.current.push(bytes)
+    flushChunks()
+  }
+
+  function endAudioStream() {
+    streamingDoneRef.current = true
+    flushChunks()
+  }
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -97,35 +153,13 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
         ])
       } else if (data.type === 'chat.plot' && data.payload.html) {
         setPlotHtml(data.payload.html)
-      } else if (data.type === 'chat.audio' && data.payload.audio) {
-        // Convert base64 audio to blob and play
-        try {
-          const audioData = atob(data.payload.audio)
-          const arrayBuffer = new ArrayBuffer(audioData.length)
-          const uint8Array = new Uint8Array(arrayBuffer)
-          for (let i = 0; i < audioData.length; i++) {
-            uint8Array[i] = audioData.charCodeAt(i)
-          }
-          const blob = new Blob([uint8Array], { type: 'audio/mpeg' })
-          const audioUrl = URL.createObjectURL(blob)
-
-          // Create or reuse audio element
-          if (!audioRef.current) {
-            audioRef.current = new Audio()
-          }
-
-          audioRef.current.src = audioUrl
-          audioRef.current.play().catch((error) => {
-            console.error('Error playing audio:', error)
-          })
-
-          // Clean up the object URL after playing
-          audioRef.current.onended = () => {
-            URL.revokeObjectURL(audioUrl)
-          }
-        } catch (error) {
-          console.error('Error processing audio:', error)
+      } else if (data.type === 'chat.audio.chunk' && data.payload.audio) {
+        if (!mediaSourceRef.current || mediaSourceRef.current.readyState === 'closed') {
+          initAudioStream()
         }
+        appendChunk(data.payload.audio)
+      } else if (data.type === 'chat.audio.done') {
+        endAudioStream()
       } else if (data.type === 'data.refresh') {
         onRefreshRef.current?.()
       } else if (data.type === 'chat.done') {

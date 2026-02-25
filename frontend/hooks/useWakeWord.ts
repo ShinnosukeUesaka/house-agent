@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from 'react'
 type UseWakeWordOptions = {
   accessKey: string
   onWakeWord: (bufferedAudio: Float32Array, workletNode: AudioWorkletNode) => void
+  onWakeWordBlocked?: () => void
   enabled: boolean
 }
 
-export function useWakeWord({ accessKey, onWakeWord, enabled }: UseWakeWordOptions) {
+export function useWakeWord({ accessKey, onWakeWord, onWakeWordBlocked, enabled }: UseWakeWordOptions) {
   const [isListening, setIsListening] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -15,9 +16,11 @@ export function useWakeWord({ accessKey, onWakeWord, enabled }: UseWakeWordOptio
   const porcupineRef = useRef<any>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const onWakeWordRef = useRef(onWakeWord)
+  const onWakeWordBlockedRef = useRef(onWakeWordBlocked)
   const enabledRef = useRef(enabled)
   const setupDoneRef = useRef(false)
   onWakeWordRef.current = onWakeWord
+  onWakeWordBlockedRef.current = onWakeWordBlocked
   enabledRef.current = enabled
 
   // Set up the audio pipeline ONCE on mount (if we have an access key).
@@ -76,6 +79,7 @@ export function useWakeWord({ accessKey, onWakeWord, enabled }: UseWakeWordOptio
             // Only fire if enabled (not currently transcribing)
             if (!enabledRef.current) {
               console.log(`Wake word detected but ignored (busy)`)
+              onWakeWordBlockedRef.current?.()
               return
             }
             console.log(`Wake word detected: ${detection.label}`)
