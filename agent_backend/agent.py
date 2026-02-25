@@ -96,6 +96,8 @@ def create_play_song_tool():
             )
 
             device_id = pi_device["id"] if pi_device else None
+            if device_id:
+                sp.transfer_playback(device_id=device_id, force_play=False)
             sp.start_playback(device_id=device_id, uris=[track_uri])
 
             return {"content": [{"type": "text", "text": f"Now playing {track_name} by {track_artist}"}]}
