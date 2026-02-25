@@ -11,7 +11,7 @@ const stateConfig: Record<VoiceState, { label: string; dotClass: string }> = {
   idle: { label: 'Voice Off', dotClass: 'bg-zinc-400' },
   listening: { label: 'Listening...', dotClass: 'bg-green-400 animate-pulse' },
   connecting: { label: 'Connecting...', dotClass: 'bg-yellow-400 animate-pulse' },
-  transcribing: { label: 'Hearing you...', dotClass: 'bg-red-400 animate-pulse' },
+  active: { label: 'Speaking...', dotClass: 'bg-red-400 animate-pulse' },
 }
 
 export function VoiceIndicator({ voiceState, error }: Props) {

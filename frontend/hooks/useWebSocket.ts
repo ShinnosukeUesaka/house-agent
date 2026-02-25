@@ -27,6 +27,7 @@ type UseWebSocketReturn = {
   isConnected: boolean
   isProcessing: boolean
   sendMessage: (content: string) => void
+  sendAndAwaitResponse: (content: string) => Promise<string>
   clearPlot: () => void
 }
 
@@ -53,6 +54,8 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const onRefreshRef = useRef(options?.onRefresh)
   onRefreshRef.current = options?.onRefresh
+  const voiceCallbackRef = useRef<((text: string) => void) | null>(null)
+  const voiceAccumulatorRef = useRef<string>('')
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -85,6 +88,25 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
 
     ws.onmessage = (event) => {
       const data: WebSocketMessage = JSON.parse(event.data)
+
+      // If a voice query is pending, accumulate into it instead of UI
+      if (voiceCallbackRef.current) {
+        if (data.type === 'chat.message' && data.payload.content) {
+          voiceAccumulatorRef.current += data.payload.content + ' '
+          return
+        }
+        if (data.type === 'chat.audio') {
+          return  // suppress TTS playback; Realtime agent speaks the result directly
+        }
+        if (data.type === 'chat.done') {
+          const text = voiceAccumulatorRef.current.trim()
+          voiceAccumulatorRef.current = ''
+          const cb = voiceCallbackRef.current
+          voiceCallbackRef.current = null
+          cb(text)
+          return
+        }
+      }
 
       if (data.type === 'chat.message' && data.payload.content) {
         setMessages((prev) => [
@@ -173,6 +195,19 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
     }
   }, [isProcessing])
 
+  const sendAndAwaitResponse = useCallback((content: string): Promise<string> => {
+    return new Promise((resolve) => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) {
+        resolve('Backend is not connected.')
+        return
+      }
+      voiceCallbackRef.current = resolve
+      voiceAccumulatorRef.current = ''
+      const channel = `dashboard_${deviceIdRef.current}`
+      wsRef.current.send(JSON.stringify({ type: 'chat', content, user: 'unknown', channel }))
+    })
+  }, [])
+
   const clearPlot = useCallback(() => {
     setPlotHtml(null)
   }, [])
@@ -183,6 +218,7 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
     isConnected,
     isProcessing,
     sendMessage,
+    sendAndAwaitResponse,
     clearPlot,
   }
 }

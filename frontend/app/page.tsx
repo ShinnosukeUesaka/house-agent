@@ -11,7 +11,6 @@ import { ChatButton } from '@/components/ChatButton'
 import { ChatWindow } from '@/components/ChatWindow'
 import { PlotWindow } from '@/components/PlotWindow'
 import { VoiceIndicator } from '@/components/VoiceIndicator'
-import { LiveTranscript } from '@/components/LiveTranscript'
 import { useVoiceAssistant } from '@/hooks/useVoiceAssistant'
 
 export default function Home() {
@@ -26,9 +25,9 @@ export default function Home() {
     addMeal,
     refetch,
   } = useMeals()
-  const { messages, plotHtml, isConnected, isProcessing, sendMessage, clearPlot } = useWebSocket({ onRefresh: refetch })
-  const { voiceState, partialTranscript, error: voiceError } = useVoiceAssistant({
-    sendMessage,
+  const { messages, plotHtml, isConnected, isProcessing, sendMessage, sendAndAwaitResponse, clearPlot } = useWebSocket({ onRefresh: refetch })
+  const { voiceState, error: voiceError } = useVoiceAssistant({
+    sendAndAwaitResponse,
     porcupineAccessKey: process.env.NEXT_PUBLIC_PICOVOICE_ACCESS_KEY || '',
     enabled: isConnected,
   })
@@ -101,11 +100,6 @@ export default function Home() {
       />
 
       <PlotWindow html={plotHtml} onClose={clearPlot} />
-
-      <LiveTranscript
-        text={partialTranscript}
-        isVisible={voiceState === 'transcribing' || voiceState === 'connecting'}
-      />
     </div>
   )
 }

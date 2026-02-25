@@ -1,12 +1,14 @@
+import base64
 import json
 import pathlib
 import sys
 import time
-import base64
 
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+import os
 
 import agent
 from claude_agent_sdk import (
@@ -21,9 +23,7 @@ from claude_agent_sdk import (
 )
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
 from openai import OpenAI
-import os
 
 app = FastAPI()
 
@@ -70,22 +70,16 @@ async def create_realtime_session():
     api_key = os.environ["OPENAI_API_KEY"]
     async with httpx.AsyncClient() as http:
         resp = await http.post(
-            "https://api.openai.com/v1/realtime/transcription_sessions",
+            "https://api.openai.com/v1/realtime/sessions",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json={
+                "model": "gpt-realtime-1.5",
+                "voice": "alloy",
                 "input_audio_format": "pcm16",
-                "input_audio_transcription": {
-                    "model": "gpt-4o-mini-transcribe",
-                },
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 1500,
-                },
+                "output_audio_format": "pcm16",
             },
         )
         resp.raise_for_status()
@@ -95,31 +89,6 @@ async def create_realtime_session():
         "token": data["client_secret"]["value"],
         "expires_at": data["client_secret"]["expires_at"],
     }
-
-
-@app.post("/api/tts")
-async def text_to_speech(request: dict):
-    """Convert text to speech using OpenAI TTS API."""
-    text = request.get("text", "")
-    if not text:
-        return Response(content=b"", status_code=400)
-
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-
-    response = client.audio.speech.create(
-        model="tts-1",
-        voice="nova",
-        input=text
-    )
-
-    # Return audio as MP3
-    return Response(
-        content=response.content,
-        media_type="audio/mpeg",
-        headers={
-            "Cache-Control": "no-cache",
-        }
-    )
 
 
 @app.websocket("/ws")

@@ -1,82 +1,50 @@
 'use client'
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useWakeWord } from './useWakeWord'
-import { useRealtimeSTT } from './useRealtimeSTT'
+import { useRealtimeVoice } from './useRealtimeVoice'
 
-export type VoiceState = 'idle' | 'listening' | 'connecting' | 'transcribing'
+export type VoiceState = 'idle' | 'listening' | 'connecting' | 'active'
 
 type UseVoiceAssistantOptions = {
-  sendMessage: (content: string) => void
+  sendAndAwaitResponse: (content: string) => Promise<string>
   porcupineAccessKey: string
   enabled: boolean
 }
 
-export function useVoiceAssistant({ sendMessage, porcupineAccessKey, enabled }: UseVoiceAssistantOptions) {
+export function useVoiceAssistant({ sendAndAwaitResponse, porcupineAccessKey, enabled }: UseVoiceAssistantOptions) {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle')
-  const [partialTranscript, setPartialTranscript] = useState('')
-  const sendMessageRef = useRef(sendMessage)
-  sendMessageRef.current = sendMessage
 
-  const handleFinalTranscript = useCallback((text: string) => {
-    const trimmed = text.trim()
-    if (trimmed) {
-      console.log('Final transcript:', trimmed)
-      sendMessageRef.current(trimmed)
-
-      // Play completion beep to confirm message was sent
-      try {
-        const beepContext = new AudioContext()
-        const oscillator = beepContext.createOscillator()
-        const gainNode = beepContext.createGain()
-
-        oscillator.connect(gainNode)
-        gainNode.connect(beepContext.destination)
-
-        // Use 1200 Hz for completion beep (different from 800 Hz wake word beep)
-        oscillator.frequency.value = 1200
-        oscillator.type = 'sine'
-
-        // Shorter, higher-pitched double beep pattern for "request sent"
-        gainNode.gain.setValueAtTime(0.3, beepContext.currentTime)
-        gainNode.gain.exponentialRampToValueAtTime(0.01, beepContext.currentTime + 0.1)
-
-        // Second beep
-        gainNode.gain.setValueAtTime(0.3, beepContext.currentTime + 0.15)
-        gainNode.gain.exponentialRampToValueAtTime(0.01, beepContext.currentTime + 0.25)
-
-        oscillator.start(beepContext.currentTime)
-        oscillator.stop(beepContext.currentTime + 0.25)
-
-        oscillator.onended = () => {
-          beepContext.close()
-        }
-      } catch (err) {
-        console.error('Failed to play completion beep:', err)
-      }
-    }
-    setPartialTranscript('')
-  }, [])
-
-  const handleStateChange = useCallback((state: 'connecting' | 'streaming' | 'idle') => {
-    if (state === 'connecting') setVoiceState('connecting')
-    else if (state === 'streaming') setVoiceState('transcribing')
-    else setVoiceState((prev) => (prev === 'idle' ? 'idle' : 'listening'))
-  }, [])
-
-  const { startStreaming } = useRealtimeSTT({
-    onPartialTranscript: setPartialTranscript,
-    onFinalTranscript: handleFinalTranscript,
-    onStateChange: handleStateChange,
+  const { startConversation } = useRealtimeVoice({
+    onEnd: () => setVoiceState('listening'),
+    onCallClaudeCode: sendAndAwaitResponse,
   })
 
+  const triggerConversation = useCallback(() => {
+    setVoiceState('connecting')
+    startConversation()
+      .then(() => setVoiceState('active'))
+      .catch(() => setVoiceState('listening'))
+  }, [startConversation])
+
   const handleWakeWord = useCallback(
-    (bufferedAudio: Float32Array, workletNode: AudioWorkletNode) => {
-      setVoiceState('connecting')
-      setPartialTranscript('')
-      startStreaming(bufferedAudio, workletNode)
+    (_bufferedAudio: Float32Array, _workletNode: AudioWorkletNode) => {
+      triggerConversation()
     },
-    [startStreaming]
+    [triggerConversation]
   )
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
+      if (voiceState !== 'idle' && voiceState !== 'listening') return
+      e.preventDefault()
+      triggerConversation()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [voiceState, triggerConversation])
 
   const { isListening, error } = useWakeWord({
     accessKey: porcupineAccessKey,
@@ -84,12 +52,10 @@ export function useVoiceAssistant({ sendMessage, porcupineAccessKey, enabled }: 
     onWakeWord: handleWakeWord,
   })
 
-  // Update state when Porcupine starts listening
   const effectiveState: VoiceState = voiceState === 'idle' && isListening ? 'listening' : voiceState
 
   return {
     voiceState: effectiveState,
-    partialTranscript,
     error,
   }
 }
