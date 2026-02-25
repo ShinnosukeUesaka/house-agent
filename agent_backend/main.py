@@ -149,12 +149,13 @@ async def websocket_endpoint(websocket: WebSocket):
         # Create tools with access to this websocket
         display_plot = agent.create_plot_tool(websocket)
         refresh_dashboard = agent.create_refresh_tool(websocket)
+        play_song = agent.create_play_song_tool()
 
         # Create MCP server with the tools
         plot_server = create_sdk_mcp_server(
             name="home-agent-server",
             version="1.0.0",
-            tools=[display_plot, refresh_dashboard],
+            tools=[display_plot, refresh_dashboard, play_song],
         )
 
         # Configure client options

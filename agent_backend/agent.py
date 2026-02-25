@@ -1,4 +1,7 @@
+import os
 
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -9,6 +12,17 @@ from claude_agent_sdk import (
     tool,
 )
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+_spotify_client: spotipy.Spotify | None = None
+
+
+def get_spotify_client() -> spotipy.Spotify:
+    global _spotify_client
+    if _spotify_client is None:
+        _spotify_client = spotipy.Spotify(auth_manager=SpotifyOAuth(
+            scope="user-modify-playback-state user-read-playback-state",
+        ))
+    return _spotify_client
 
 
 def create_plot_tool(websocket: WebSocket):
@@ -44,3 +58,50 @@ def create_refresh_tool(websocket: WebSocket):
         }
 
     return refresh_dashboard
+
+
+def create_play_song_tool():
+    """Create a play_song tool that plays music on Spotify."""
+
+    @tool(
+        "play_song",
+        "Play a song on Spotify. Searches for the track and starts playback on the home speaker. Provide the song name and optionally the artist.",
+        {"song": str, "artist": str},
+    )
+    async def play_song(args: dict):
+        song = args.get("song", "")
+        artist = args.get("artist", "")
+
+        try:
+            sp = get_spotify_client()
+
+            query = f"track:{song}"
+            if artist:
+                query += f" artist:{artist}"
+            results = sp.search(q=query, type="track", limit=1)
+
+            if not results["tracks"]["items"]:
+                return {"content": [{"type": "text", "text": f"Could not find {song} by {artist}"}]}
+
+            track = results["tracks"]["items"][0]
+            track_uri = track["uri"]
+            track_name = track["name"]
+            track_artist = track["artists"][0]["name"]
+
+            devices = sp.devices()
+            pi_device = next(
+                (d for d in devices.get("devices", [])
+                 if "raspotify" in d["name"].lower() or "pi" in d["name"].lower()),
+                None,
+            )
+
+            device_id = pi_device["id"] if pi_device else None
+            sp.start_playback(device_id=device_id, uris=[track_uri])
+
+            return {"content": [{"type": "text", "text": f"Now playing {track_name} by {track_artist}"}]}
+        except spotipy.SpotifyException as e:
+            return {"content": [{"type": "text", "text": f"Spotify error: {e.msg}"}]}
+        except Exception as e:
+            return {"content": [{"type": "text", "text": f"Failed to play song: {e}"}]}
+
+    return play_song
