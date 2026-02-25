@@ -92,9 +92,8 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
       sourceBufferRef.current = sb
       sb.addEventListener('updateend', flushChunks)
       flushChunks()
+      audio.play().catch((e) => console.error('Audio play error:', e))
     }, { once: true })
-
-    audio.play().catch((e) => console.error('Audio play error:', e))
   }
 
   function appendChunk(base64: string) {
