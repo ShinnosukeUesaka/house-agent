@@ -31,6 +31,7 @@ export default function Home() {
     sendMessage,
     porcupineAccessKey: process.env.NEXT_PUBLIC_PICOVOICE_ACCESS_KEY || '',
     enabled: isConnected,
+    isProcessing,
   })
 
   const dailyData = getDailyAggregates(7)
@@ -51,7 +52,7 @@ export default function Home() {
             >
               + Add Meal
             </button>
-            <VoiceIndicator voiceState={voiceState} error={voiceError} />
+            <VoiceIndicator voiceState={voiceState} isProcessing={isProcessing} error={voiceError} />
             <ChatButton onClick={() => setIsChatOpen(true)} isConnected={isConnected} />
           </div>
         </div>

@@ -9,13 +9,16 @@ type UseVoiceAssistantOptions = {
   sendMessage: (content: string) => void
   porcupineAccessKey: string
   enabled: boolean
+  isProcessing: boolean
 }
 
-export function useVoiceAssistant({ sendMessage, porcupineAccessKey, enabled }: UseVoiceAssistantOptions) {
+export function useVoiceAssistant({ sendMessage, porcupineAccessKey, enabled, isProcessing }: UseVoiceAssistantOptions) {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle')
   const [partialTranscript, setPartialTranscript] = useState('')
   const sendMessageRef = useRef(sendMessage)
+  const isProcessingRef = useRef(isProcessing)
   sendMessageRef.current = sendMessage
+  isProcessingRef.current = isProcessing
 
   const handleFinalTranscript = useCallback((text: string) => {
     const trimmed = text.trim()
@@ -78,10 +81,33 @@ export function useVoiceAssistant({ sendMessage, porcupineAccessKey, enabled }: 
     [startStreaming]
   )
 
+  const handleWakeWordBlocked = useCallback(() => {
+    if (!isProcessingRef.current) return
+    try {
+      const ctx = new AudioContext()
+      const oscillator = ctx.createOscillator()
+      const gainNode = ctx.createGain()
+      oscillator.connect(gainNode)
+      gainNode.connect(ctx.destination)
+      oscillator.type = 'sine'
+      // Descending tone: 400 Hz → 250 Hz
+      oscillator.frequency.setValueAtTime(400, ctx.currentTime)
+      oscillator.frequency.linearRampToValueAtTime(250, ctx.currentTime + 0.3)
+      gainNode.gain.setValueAtTime(0.3, ctx.currentTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3)
+      oscillator.start(ctx.currentTime)
+      oscillator.stop(ctx.currentTime + 0.3)
+      oscillator.onended = () => ctx.close()
+    } catch (err) {
+      console.error('Failed to play error beep:', err)
+    }
+  }, [])
+
   const { isListening, error } = useWakeWord({
     accessKey: porcupineAccessKey,
-    enabled: enabled && (voiceState === 'idle' || voiceState === 'listening'),
+    enabled: enabled && !isProcessing && (voiceState === 'idle' || voiceState === 'listening'),
     onWakeWord: handleWakeWord,
+    onWakeWordBlocked: handleWakeWordBlocked,
   })
 
   // Update state when Porcupine starts listening

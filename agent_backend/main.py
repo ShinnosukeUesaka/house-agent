@@ -1,12 +1,14 @@
+import base64
 import json
 import pathlib
 import sys
 import time
-import base64
 
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+import os
 
 import agent
 from claude_agent_sdk import (
@@ -22,8 +24,7 @@ from claude_agent_sdk import (
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from openai import OpenAI
-import os
+from openai import AsyncOpenAI, OpenAI
 
 app = FastAPI()
 
@@ -78,14 +79,18 @@ async def create_realtime_session():
             json={
                 "input_audio_format": "pcm16",
                 "input_audio_transcription": {
-                    "model": "gpt-4o-mini-transcribe",
+                    "model": "gpt-4o-transcribe",
                 },
+                # "turn_detection": {
+                #     "type": "server_vad",
+                #     "threshold": 0.5,
+                #     "prefix_padding_ms": 300,
+                #     "silence_duration_ms": 1500,
+                # },
                 "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 1500,
-                },
+                    "type": "semantic_vad",
+                    "eagerness": "low" 
+                }
             },
         )
         resp.raise_for_status()
@@ -208,22 +213,25 @@ async def websocket_endpoint(websocket: WebSocket):
                                         },
                                     })
 
-                                    # Generate TTS audio
+                                    # Generate TTS audio (streaming)
                                     try:
-                                        openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-                                        audio_response = openai_client.audio.speech.create(
-                                            model="tts-1",
-                                            voice="onyx",
-                                            input=block.text
-                                        )
-
-                                        # Encode audio as base64 and send via WebSocket
-                                        audio_base64 = base64.b64encode(audio_response.content).decode('utf-8')
+                                        async_openai_client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+                                        async with async_openai_client.audio.speech.with_streaming_response.create(
+                                            model="gpt-4o-mini-tts",
+                                            voice="coral",
+                                            input=block.text,
+                                            instructions="Speak in a cheerful and positive tone.",
+                                        ) as audio_stream:
+                                            async for chunk in audio_stream.iter_bytes(chunk_size=4096):
+                                                if chunk:
+                                                    audio_base64 = base64.b64encode(chunk).decode('utf-8')
+                                                    await websocket.send_json({
+                                                        "type": "chat.audio.chunk",
+                                                        "payload": {"audio": audio_base64},
+                                                    })
                                         await websocket.send_json({
-                                            "type": "chat.audio",
-                                            "payload": {
-                                                "audio": audio_base64,
-                                            },
+                                            "type": "chat.audio.done",
+                                            "payload": {},
                                         })
                                     except Exception as e:
                                         print(f"TTS error: {e}")
