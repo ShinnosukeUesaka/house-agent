@@ -32,7 +32,7 @@ export function useWakeWord({ accessKey, onWakeWord, onWakeWordBlocked, enabled 
 
     async function setup() {
       try {
-        const { Porcupine, BuiltInKeyword } = await import('@picovoice/porcupine-web')
+        const { Porcupine } = await import('@picovoice/porcupine-web')
 
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -74,7 +74,7 @@ export function useWakeWord({ accessKey, onWakeWord, onWakeWordBlocked, enabled 
         // Set up Porcupine
         const porcupine = await Porcupine.create(
           accessKey,
-          [BuiltInKeyword.Alexa],
+          [{ publicPath: '/porcupine/ok-computer_en_wasm_v4_0_0.ppn', label: 'ok computer' }],
           (detection) => {
             // Only fire if enabled (not currently transcribing)
             if (!enabledRef.current) {
